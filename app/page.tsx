@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { formatCurrency, formatDate, formatPercent } from "@/lib/format";
+import { getLatestMarketMoversBrief } from "@/lib/insights/market-movers-brief";
 import { parseMarketListParams } from "@/lib/markets/params";
 import { listMarkets } from "@/lib/markets/queries";
 
@@ -10,7 +11,10 @@ type HomeProps = {
 
 export default async function Home({ searchParams }: HomeProps) {
   const params = parseMarketListParams(toUrlSearchParams(await searchParams));
-  const markets = await listMarkets(params);
+  const [markets, latestBrief] = await Promise.all([
+    listMarkets(params),
+    getLatestMarketMoversBrief(),
+  ]);
   const totalVolume24hr = markets.reduce(
     (sum, market) => sum + (market.volume24hr ?? 0),
     0,
@@ -33,7 +37,7 @@ export default async function Home({ searchParams }: HomeProps) {
                 Market Dashboard
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">
-                Active markets from Gamma, backed by stored snapshots for trend
+                Active markets from Polymarket Gamma API, backed by stored snapshots for trend
                 analysis.
               </p>
             </div>
@@ -88,6 +92,33 @@ export default async function Home({ searchParams }: HomeProps) {
           <StatCard label="24h volume" value={formatCurrency(totalVolume24hr)} />
           <StatCard label="Liquidity" value={formatCurrency(totalLiquidity)} />
           <StatCard label="Default sort" value={params.sort} />
+        </section>
+
+        <section className="rounded-lg bg-white p-6 shadow-sm dark:bg-zinc-950">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
+                Market Movers Brief
+              </h2>
+              <p className="mt-1 text-sm text-zinc-500">
+                AI summary generated from stored snapshot movement and market
+                quality signals.
+              </p>
+            </div>
+            {latestBrief ? (
+              <p className="text-sm text-zinc-500">
+                {formatDate(latestBrief.createdAt)}
+              </p>
+            ) : null}
+          </div>
+          {latestBrief ? (
+            <div className="mt-4 space-y-4">
+              <p className="text-sm leading-6 text-zinc-700 dark:text-zinc-300">
+                {latestBrief.summary}
+              </p>
+              <BriefMoverList report={latestBrief.report} />
+            </div>
+          ) : null}
         </section>
 
         <section className="overflow-hidden rounded-lg bg-white shadow-sm dark:bg-zinc-950">
@@ -153,6 +184,54 @@ function MarketMetric({ label, value }: { label: string; value: string }) {
       </p>
       <p className="text-sm text-zinc-700 dark:text-zinc-300">{value}</p>
     </div>
+  );
+}
+
+function BriefMoverList({ report }: { report: Record<string, unknown> | null }) {
+  if (!report || !Array.isArray(report.topMovers)) {
+    return null;
+  }
+
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {report.topMovers.slice(0, 4).map((item, index) => {
+        if (!isBriefMover(item)) {
+          return null;
+        }
+
+        return (
+          <Link
+            className="rounded-lg border border-zinc-200 p-4 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+            href={`/market/${item.marketId}`}
+            key={item.marketId}
+          >
+            <p className="text-sm font-medium text-zinc-950 dark:text-zinc-50">
+              {index + 1}. {item.title}
+            </p>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              {item.whyItMatters}
+            </p>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+function isBriefMover(value: unknown): value is {
+  marketId: string;
+  title: string;
+  whyItMatters: string;
+} {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "marketId" in value &&
+    "title" in value &&
+    "whyItMatters" in value &&
+    typeof value.marketId === "string" &&
+    typeof value.title === "string" &&
+    typeof value.whyItMatters === "string"
   );
 }
 
