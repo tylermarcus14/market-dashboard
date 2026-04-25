@@ -5,7 +5,7 @@ import { ingestMarkets } from "../lib/polymarket/ingest";
 loadEnvConfig(process.cwd());
 
 async function main() {
-  const limit = Number(process.env.INGEST_LIMIT ?? 200);
+  const limit = Number(process.env.INGEST_LIMIT ?? 500);
   const result = await ingestMarkets({ limit });
 
   console.log(

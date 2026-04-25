@@ -16,7 +16,7 @@ export type IngestMarketsResult = {
 };
 
 export async function ingestMarkets({
-  limit = 200,
+  limit = 500,
 }: IngestMarketsOptions = {}): Promise<IngestMarketsResult> {
   const rows = await fetchGammaMarkets({ limit });
   const normalized = rows.map(normalizeGammaMarket).filter((row) => row !== null);

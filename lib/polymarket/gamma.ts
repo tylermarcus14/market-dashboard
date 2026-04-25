@@ -8,7 +8,7 @@ type FetchMarketsOptions = {
 export type GammaMarket = Record<string, unknown>;
 
 export async function fetchGammaMarkets({
-  limit = 200,
+  limit = 500,
   offset = 0,
 }: FetchMarketsOptions = {}) {
   const url = new URL(GAMMA_MARKETS_URL);
