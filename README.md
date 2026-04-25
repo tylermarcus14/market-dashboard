@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Market Dashboard
 
-## Getting Started
+Polymarket intelligence dashboard built for the PredictQ live build. It ingests
+Gamma markets, stores current state plus snapshots, exposes API routes, and
+generates a Market Movers Brief from stored movement data.
 
-First, run the development server:
+## Setup
 
 ```bash
+npm install
+npm run db:migrate
+npm run ingest:markets
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Required env vars:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+DATABASE_URL=
+CRON_SECRET=
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5.4-mini
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Architecture
 
-## Learn More
+- `markets` stores normalized current Gamma market state.
+- `market_snapshots` stores time-series observations for charting and movers.
+- `ai_insights` stores generated Market Movers Briefs and their input signals.
+- `/api/cron/ingest` polls Gamma every minute on Vercel.
+- `/api/cron/insights` generates a new AI brief hourly.
+- Frontend reads from the app database through server-side helpers.
 
-To learn more about Next.js, take a look at the following resources:
+## API Smoke Checks
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+curl "http://localhost:3000/markets?limit=10"
+curl "http://localhost:3000/markets/:id"
+curl "http://localhost:3000/markets/:id/history?window=24h"
+curl "http://localhost:3000/insights/trends"
+curl "http://localhost:3000/insights/trends?refresh=true"
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Local dev allows direct cron endpoint clicks. Production cron endpoints require
+`Authorization: Bearer $CRON_SECRET`.
 
-## Deploy on Vercel
+## Tradeoffs
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+I prioritized the working pipeline over polish: ingestion, storage, API,
+frontend, then AI. I skipped SSE/WebSockets and kept the UI plain. Snapshot
+retention/downsampling would be the first scaling improvement after the demo.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Deploy
+
+Deploy to Vercel and set the env vars above. Cron schedules are defined in
+`vercel.json`.

@@ -44,7 +44,7 @@ export default async function MarketPage({ params }: MarketPageProps) {
             {market.question}
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-            {market.description}
+            {truncateText(market.description, 700)}
           </p>
         </header>
 
@@ -112,4 +112,12 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       <span className="text-right text-zinc-900 dark:text-zinc-100">{value}</span>
     </div>
   );
+}
+
+function truncateText(value: string | null, maxLength: number) {
+  if (!value) {
+    return "No description available.";
+  }
+
+  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }

@@ -3,8 +3,11 @@ import { and, desc, eq, gte, inArray, isNull, not, or, sql } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { marketSnapshots, markets } from "../db/schema";
 
+const MIN_MEANINGFUL_DELTA = 0.005;
+
 export type MoverSignal = {
   marketId: string;
+  eventId: string | null;
   question: string;
   eventTitle: string | null;
   outcomes: string[];
@@ -31,6 +34,7 @@ export async function buildMoverSignals(limit = 8): Promise<MoverSignalsInput> {
   const marketRows = await db
     .select({
       id: markets.id,
+      eventId: markets.eventId,
       question: markets.question,
       eventTitle: markets.eventTitle,
       description: markets.description,
@@ -55,7 +59,7 @@ export async function buildMoverSignals(limit = 8): Promise<MoverSignalsInput> {
       ),
     )
     .orderBy(desc(markets.volume24hr))
-    .limit(200);
+    .limit(250);
 
   if (marketRows.length === 0) {
     return {
@@ -77,25 +81,29 @@ export async function buildMoverSignals(limit = 8): Promise<MoverSignalsInput> {
   for (const snapshot of snapshots) {
     const existing = snapshotsByMarket.get(snapshot.marketId) ?? [];
 
-    if (existing.length < 2) {
+    if (existing.length < 20) {
       existing.push(snapshot);
       snapshotsByMarket.set(snapshot.marketId, existing);
     }
   }
 
-  const movers = marketRows
+  const rankedMovers = marketRows
     .map((market): MoverSignal | null => {
       const marketSnapshots = snapshotsByMarket.get(market.id) ?? [];
       const latestSnapshot = marketSnapshots[0];
-      const previousSnapshot = marketSnapshots[1];
+      const previousSnapshot = findComparisonSnapshot(marketSnapshots);
       const snapshotDelta =
         latestSnapshot && previousSnapshot
           ? (latestSnapshot.outcomePrices[0] ?? 0) -
             (previousSnapshot.outcomePrices[0] ?? 0)
           : null;
       const fallbackDelta = market.oneDayPriceChange ?? market.oneWeekPriceChange;
-      const probabilityDelta = snapshotDelta ?? fallbackDelta ?? null;
-      const probabilityDeltaSource = snapshotDelta !== null
+      const hasMeaningfulSnapshotDelta =
+        snapshotDelta !== null && Math.abs(snapshotDelta) >= MIN_MEANINGFUL_DELTA;
+      const probabilityDelta = hasMeaningfulSnapshotDelta
+        ? snapshotDelta
+        : fallbackDelta ?? null;
+      const probabilityDeltaSource = hasMeaningfulSnapshotDelta
         ? "snapshots"
         : fallbackDelta !== null && fallbackDelta !== undefined
           ? "gamma_price_change"
@@ -105,7 +113,8 @@ export async function buildMoverSignals(limit = 8): Promise<MoverSignalsInput> {
         market.outcomePrices.length === 0 ||
         market.liquidity === null ||
         market.liquidity < 10_000 ||
-        probabilityDelta === null
+        probabilityDelta === null ||
+        Math.abs(probabilityDelta) < MIN_MEANINGFUL_DELTA
       ) {
         return null;
       }
@@ -118,6 +127,7 @@ export async function buildMoverSignals(limit = 8): Promise<MoverSignalsInput> {
 
       return {
         marketId: market.id,
+        eventId: market.eventId,
         question: market.question,
         eventTitle: market.eventTitle,
         outcomes: market.outcomes,
@@ -134,14 +144,48 @@ export async function buildMoverSignals(limit = 8): Promise<MoverSignalsInput> {
       };
     })
     .filter((mover): mover is MoverSignal => mover !== null)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+    .sort((a, b) => b.score - a.score);
+  const seenEvents = new Set<string>();
+  const movers: MoverSignal[] = [];
+
+  for (const mover of rankedMovers) {
+    const eventKey = mover.eventId ?? mover.eventTitle ?? mover.marketId;
+
+    if (seenEvents.has(eventKey)) {
+      continue;
+    }
+
+    seenEvents.add(eventKey);
+    movers.push(mover);
+
+    if (movers.length >= limit) {
+      break;
+    }
+  }
 
   return {
     generatedAt: new Date().toISOString(),
     marketsAnalyzed: marketRows.length,
     movers,
   };
+}
+
+function findComparisonSnapshot(
+  snapshots: (typeof marketSnapshots.$inferSelect)[],
+) {
+  const latest = snapshots[0];
+
+  if (!latest) {
+    return undefined;
+  }
+
+  const oneHourBeforeLatest = latest.capturedAt.getTime() - 60 * 60 * 1000;
+
+  return (
+    snapshots.find(
+      (snapshot) => snapshot.capturedAt.getTime() <= oneHourBeforeLatest,
+    ) ?? snapshots[1]
+  );
 }
 
 function buildReasonSelected(

@@ -1,5 +1,9 @@
 import Link from "next/link";
 
+import {
+  generateMarketMoversBriefAction,
+  refreshMarketDataAction,
+} from "@/app/actions";
 import { formatCurrency, formatDate, formatPercent } from "@/lib/format";
 import { getLatestMarketMoversBrief } from "@/lib/insights/market-movers-brief";
 import { parseMarketListParams } from "@/lib/markets/params";
@@ -10,7 +14,9 @@ type HomeProps = {
 };
 
 export default async function Home({ searchParams }: HomeProps) {
-  const params = parseMarketListParams(toUrlSearchParams(await searchParams));
+  const rawSearchParams = await searchParams;
+  const params = parseMarketListParams(toUrlSearchParams(rawSearchParams));
+  const notice = getNotice(rawSearchParams.notice);
   const [markets, latestBrief] = await Promise.all([
     listMarkets(params),
     getLatestMarketMoversBrief(),
@@ -37,15 +43,26 @@ export default async function Home({ searchParams }: HomeProps) {
                 Market Dashboard
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">
-                Active markets from Polymarket Gamma API, backed by stored snapshots for trend
-                analysis.
+                Active markets from Polymarket Gamma API, backed by stored
+                snapshots for trend analysis.
               </p>
             </div>
             <p className="text-sm text-zinc-500">
               Showing {markets.length} markets
             </p>
           </div>
+          <form action={refreshMarketDataAction} className="mt-4">
+            <button className="rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-900">
+              Refresh markets
+            </button>
+          </form>
         </header>
+
+        {notice ? (
+          <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-700 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
+            {notice}
+          </div>
+        ) : null}
 
         <form className="grid gap-3 rounded-lg bg-white p-4 shadow-sm dark:bg-zinc-950 sm:grid-cols-[1fr_repeat(4,auto)]">
           <input
@@ -105,12 +122,17 @@ export default async function Home({ searchParams }: HomeProps) {
                 quality signals.
               </p>
             </div>
-            {latestBrief ? (
-              <p className="text-sm text-zinc-500">
-                {formatDate(latestBrief.createdAt)}
-              </p>
-            ) : null}
+            <p className="text-sm text-zinc-500">
+              {latestBrief
+                ? `Last generated ${formatDate(latestBrief.createdAt)}`
+                : "No brief generated yet"}
+            </p>
           </div>
+          <form action={generateMarketMoversBriefAction} className="mt-4">
+            <button className="rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-900">
+              Generate brief
+            </button>
+          </form>
           {latestBrief ? (
             <div className="mt-4 space-y-4">
               <p className="text-sm leading-6 text-zinc-700 dark:text-zinc-300">
@@ -118,7 +140,12 @@ export default async function Home({ searchParams }: HomeProps) {
               </p>
               <BriefMoverList report={latestBrief.report} />
             </div>
-          ) : null}
+          ) : (
+            <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-400">
+              Generate a brief to rank notable moves by snapshot delta, volume,
+              liquidity, and spread.
+            </p>
+          )}
         </section>
 
         <section className="overflow-hidden rounded-lg bg-white shadow-sm dark:bg-zinc-950">
@@ -129,7 +156,7 @@ export default async function Home({ searchParams }: HomeProps) {
             <span>Liquidity</span>
           </div>
           <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-            {markets.map((market) => (
+            {markets.length > 0 ? markets.map((market) => (
               <Link
                 className="grid gap-4 p-4 transition hover:bg-zinc-50 dark:hover:bg-zinc-900 md:grid-cols-[1fr_120px_120px_120px]"
                 href={`/market/${market.id}`}
@@ -157,7 +184,11 @@ export default async function Home({ searchParams }: HomeProps) {
                   value={formatCurrency(market.liquidity)}
                 />
               </Link>
-            ))}
+            )) : (
+              <div className="p-6 text-sm text-zinc-500">
+                No markets matched the current filters.
+              </div>
+            )}
           </div>
         </section>
       </section>
@@ -233,6 +264,23 @@ function isBriefMover(value: unknown): value is {
     typeof value.title === "string" &&
     typeof value.whyItMatters === "string"
   );
+}
+
+function getNotice(value: string | string[] | undefined) {
+  const notice = Array.isArray(value) ? value[0] : value;
+
+  switch (notice) {
+    case "markets-refreshed":
+      return "Market data refreshed.";
+    case "markets-refresh-failed":
+      return "Market refresh failed. Check server logs.";
+    case "brief-generated":
+      return "Market Movers Brief generated.";
+    case "brief-generation-failed":
+      return "Brief generation failed. Check OpenAI env and server logs.";
+    default:
+      return null;
+  }
 }
 
 function toUrlSearchParams(searchParams: Record<string, string | string[] | undefined>) {

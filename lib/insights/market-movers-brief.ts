@@ -32,7 +32,9 @@ export async function generateMarketMoversBrief() {
   const inputSignals = await buildMoverSignals();
 
   if (inputSignals.movers.length === 0) {
-    throw new Error("No mover signals available yet");
+    throw new Error(
+      "No meaningful movers yet. Wait for more snapshots or refresh market data.",
+    );
   }
 
   const model = (await readEnvValue("OPENAI_MODEL")) || "gpt-5.4-mini";
