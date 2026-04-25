@@ -35,7 +35,7 @@ export async function generateMarketMoversBrief() {
     throw new Error("No mover signals available yet");
   }
 
-  const model = process.env.OPENAI_MODEL || "gpt-5.4-mini";
+  const model = (await readEnvValue("OPENAI_MODEL")) || "gpt-5.4-mini";
   const { report, rawResponse } = await callOpenAiForBrief(inputSignals, model);
   const content = renderBriefContent(report);
   const db = getDb();
@@ -60,7 +60,7 @@ async function callOpenAiForBrief(
   inputSignals: MoverSignalsInput,
   model: string,
 ): Promise<{ report: MarketMoverReport; rawResponse: Record<string, unknown> }> {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = await readEnvValue("OPENAI_API_KEY");
 
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is required to generate market movers brief");
@@ -188,4 +188,41 @@ function renderBriefContent(report: MarketMoverReport) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function readEnvValue(name: string) {
+  if (process.env[name]) {
+    return process.env[name];
+  }
+
+  if (process.env.NODE_ENV !== "development") {
+    return undefined;
+  }
+
+  const { existsSync, readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+
+  for (const fileName of [".env.local", ".env"]) {
+    const filePath = join(process.cwd(), fileName);
+    const value = existsSync(filePath)
+      ? readValueFromEnvFile(readFileSync(filePath, "utf8"), name)
+      : undefined;
+
+    if (value) return value;
+  }
+
+  return undefined;
+}
+
+function readValueFromEnvFile(contents: string, name: string) {
+  const prefix = `${name}=`;
+  const line = contents
+    .split(/\r?\n/)
+    .find((item) => item.trim().startsWith(prefix));
+
+  if (!line) {
+    return undefined;
+  }
+
+  return line.slice(prefix.length).trim().replace(/^["']|["']$/g, "");
 }
